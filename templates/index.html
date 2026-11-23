@@ -1,0 +1,298 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GSM GPS Fleet Tracking</title>
+
+    <link rel="stylesheet"
+          href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #0b1220;
+            color: #e5e7eb;
+        }
+
+        header {
+            background: #111c30;
+            padding: 20px 5%;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        header h1 {
+            margin: 0;
+            font-size: 23px;
+            color: #38bdf8;
+        }
+
+        .status {
+            color: #4ade80;
+            font-size: 14px;
+        }
+
+        main {
+            max-width: 1400px;
+            margin: auto;
+            padding: 25px;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 15px;
+            margin-bottom: 22px;
+        }
+
+        .card {
+            background: #17243a;
+            padding: 20px;
+            border-radius: 12px;
+            border: 1px solid #263751;
+        }
+
+        .card h3 {
+            color: #94a3b8;
+            font-size: 14px;
+            margin-top: 0;
+        }
+
+        .number {
+            font-size: 27px;
+            font-weight: bold;
+            color: #38bdf8;
+        }
+
+        .layout {
+            display: grid;
+            grid-template-columns: 1fr 320px;
+            gap: 20px;
+        }
+
+        #map {
+            height: 480px;
+            border-radius: 12px;
+            z-index: 1;
+        }
+
+        .sidebar {
+            background: #17243a;
+            border-radius: 12px;
+            padding: 20px;
+        }
+
+        .vehicle {
+            background: #22324b;
+            padding: 14px;
+            border-radius: 9px;
+            margin-bottom: 12px;
+        }
+
+        .vehicle h3 {
+            margin: 0 0 8px;
+            color: #38bdf8;
+        }
+
+        .vehicle p {
+            font-size: 13px;
+            margin: 5px 0;
+            color: #cbd5e1;
+        }
+
+        button {
+            padding: 11px 17px;
+            border: none;
+            border-radius: 7px;
+            cursor: pointer;
+            font-weight: bold;
+            margin: 5px 5px 5px 0;
+        }
+
+        .start {
+            background: #16a34a;
+            color: white;
+        }
+
+        .pause {
+            background: #dc2626;
+            color: white;
+        }
+
+        #message {
+            color: #94a3b8;
+            font-size: 13px;
+            margin-top: 12px;
+        }
+
+        @media(max-width: 850px) {
+            .layout {
+                grid-template-columns: 1fr;
+            }
+
+            #map {
+                height: 380px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+<header>
+    <h1>GSM / GPS TRACKING SYSTEM</h1>
+    <div class="status">● SYSTEM ONLINE</div>
+</header>
+
+<main>
+
+    <div class="stats">
+        <div class="card">
+            <h3>Total Devices</h3>
+            <div class="number" id="total">3</div>
+        </div>
+
+        <div class="card">
+            <h3>Active Devices</h3>
+            <div class="number" id="active">3</div>
+        </div>
+
+        <div class="card">
+            <h3>GSM Connection</h3>
+            <div class="number" style="font-size:20px">Connected</div>
+        </div>
+
+        <div class="card">
+            <h3>Tracking Status</h3>
+            <div class="number" id="tracking">Active</div>
+        </div>
+    </div>
+
+    <div class="layout">
+
+        <div class="card">
+            <h2>Live Vehicle Map</h2>
+            <div id="map"></div>
+            <p id="message">Initializing tracking...</p>
+        </div>
+
+        <div class="sidebar">
+            <h2>Tracking Devices</h2>
+
+            <div id="vehicles"></div>
+
+            <hr>
+
+            <h3>Tracking Controls</h3>
+
+            <button class="start" onclick="startTracking()">
+                Start Tracking
+            </button>
+
+            <button class="pause" onclick="pauseTracking()">
+                Pause Tracking
+            </button>
+        </div>
+
+    </div>
+
+</main>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+    const map = L.map('map').setView([19.0760, 72.8777], 13);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    const markers = {};
+    let trackingInterval = null;
+    let tracking = true;
+
+    async function refreshDevices() {
+        try {
+            const response = await fetch('/api/update');
+            const data = await response.json();
+
+            document.getElementById('total').textContent =
+                data.devices.length;
+
+            document.getElementById('active').textContent =
+                data.devices.filter(d => d.status === 'Online').length;
+
+            document.getElementById('tracking').textContent =
+                tracking ? 'Active' : 'Paused';
+
+            document.getElementById('vehicles').innerHTML =
+                data.devices.map(device => `
+                    <div class="vehicle">
+                        <h3>${device.name}</h3>
+                        <p>ID: ${device.id}</p>
+                        <p>Speed: ${device.speed} km/h</p>
+                        <p>Latitude: ${device.latitude.toFixed(5)}</p>
+                        <p>Longitude: ${device.longitude.toFixed(5)}</p>
+                        <p>Status: ${device.status}</p>
+                    </div>
+                `).join('');
+
+            data.devices.forEach(device => {
+                const position = [
+                    device.latitude,
+                    device.longitude
+                ];
+
+                if (markers[device.id]) {
+                    markers[device.id].setLatLng(position);
+                } else {
+                    markers[device.id] = L.marker(position)
+                        .addTo(map)
+                        .bindPopup(device.name);
+                }
+            });
+
+            document.getElementById('message').textContent =
+                'Last update: ' + new Date().toLocaleTimeString() +
+                ' | GSM: ' + data.gsm_status;
+
+        } catch (error) {
+            document.getElementById('message').textContent =
+                'Connection error: ' + error.message;
+        }
+    }
+
+    function startTracking() {
+        if (trackingInterval) return;
+
+        tracking = true;
+        refreshDevices();
+        trackingInterval = setInterval(refreshDevices, 3000);
+    }
+
+    function pauseTracking() {
+        clearInterval(trackingInterval);
+        trackingInterval = null;
+        tracking = false;
+
+        document.getElementById('tracking').textContent = 'Paused';
+        document.getElementById('message').textContent =
+            'Tracking paused.';
+    }
+
+    refreshDevices();
+    startTracking();
+</script>
+
+</body>
+</html>
